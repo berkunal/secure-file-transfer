@@ -1,11 +1,10 @@
 package com.maglor;
 
 import javax.crypto.*;
+import javax.crypto.spec.IvParameterSpec;
 import java.io.*;
 import java.net.Socket;
 import java.security.*;
-import java.security.spec.InvalidKeySpecException;
-import java.security.spec.X509EncodedKeySpec;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -27,7 +26,7 @@ public class ServerHelper extends Thread {
 
         // Servers private and public keys
         PublicKey publicKey = keyPair.getPublic();
-        PrivateKey privateKey = keyPair.getPrivate();
+        //PrivateKey privateKey = keyPair.getPrivate();
 
         try {
             // Send server's public key to client
@@ -47,7 +46,6 @@ public class ServerHelper extends Thread {
             Cipher cipher = Cipher.getInstance("RSA");
             cipher.init(Cipher.ENCRYPT_MODE, clientPublicKey);
             byte[] encryptedSessionKey = cipher.doFinal(sessionKey.getEncoded());
-            System.out.println(new String(encryptedSessionKey));
 
             // Send encrypted session key
             DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
@@ -57,8 +55,15 @@ public class ServerHelper extends Thread {
                 dos.write(encryptedSessionKey, 0, len);
             }
 
-            // Stream coming to server (in compressed form)
+            // AES cipher
+            byte[] iv = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+            IvParameterSpec ivParameterSpec = new IvParameterSpec(iv);
+            Cipher aesCipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            aesCipher.init(Cipher.DECRYPT_MODE, sessionKey, ivParameterSpec);
+
+            // Stream coming to server (encrypted and in compressed form)
             ZipInputStream inputStream = new ZipInputStream(socket.getInputStream());
+            CipherInputStream cipherInputStream = new CipherInputStream(inputStream, aesCipher);
 
             ZipEntry entry;
             String entryName;
@@ -69,20 +74,21 @@ public class ServerHelper extends Thread {
                 OutputStream outputStream = new FileOutputStream(plainId + "_" + entryName);
 
                 int count;
-                while ((count = inputStream.read(buffer)) > 0) {
+                while ((count = cipherInputStream.read(buffer)) > 0) {
                     outputStream.write(buffer, 0, count);
                 }
 
                 System.out.println(id + ": " + entryName + " received successfully from " + socket.toString());
 
+                cipherInputStream.close();
                 outputStream.close();
             }
 
             inputStream.close();
         } catch (IOException |ClassNotFoundException
                 |NoSuchAlgorithmException |NoSuchPaddingException
-                |InvalidKeyException |BadPaddingException |IllegalBlockSizeException e) {
-            System.out.println(id + ": File transmission interrupted");
+                |InvalidKeyException |BadPaddingException |IllegalBlockSizeException |InvalidAlgorithmParameterException e) {
+            e.printStackTrace();
         }
     }
 }

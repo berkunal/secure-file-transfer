@@ -1,5 +1,8 @@
 package com.maglor;
 
+import javax.crypto.*;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import java.io.*;
 import java.net.Socket;
 import java.security.*;
@@ -17,7 +20,7 @@ public class Client {
         String url = "localhost";
 
         // TODO: Get file path as argument (default smth)
-        String filePath = "/Users/ecem/Downloads/ideaIC-2018.1.1.dmg";
+        String filePath = "/Users/ecem/Downloads/testVidoe.mp4";
         try {
             // Connect to server
             System.out.println("Connecting to \u001B[36m" + url + ":" + PORT + "\u001B[0m");
@@ -25,7 +28,7 @@ public class Client {
             System.out.println("Connected");
 
             // Generate Client's Key Pair
-            KeyPair keyPair = null;
+            KeyPair keyPair;
             keyPair = keyPairGenerator();
             PublicKey publicKey = keyPair.getPublic();
             PrivateKey privateKey = keyPair.getPrivate();
@@ -45,14 +48,23 @@ public class Client {
             if (len > 0) {
                 dataInputStream.readFully(encryptedSessionKey);
             }
-            System.out.println(new String(encryptedSessionKey));
 
             // Decrypt it using client's private key
+            Cipher cipher = Cipher.getInstance("RSA");
+            cipher.init(Cipher.DECRYPT_MODE, privateKey);
+            byte[] decryptedSessionKey = cipher.doFinal(encryptedSessionKey);
+            SecretKey sessionKey = new SecretKeySpec(decryptedSessionKey, 0, decryptedSessionKey.length, "AES");
 
+            // AES cipher
+            byte[] iv = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+            IvParameterSpec ivParameterSpec = new IvParameterSpec(iv);
+            Cipher aesCipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            aesCipher.init(Cipher.ENCRYPT_MODE, sessionKey, ivParameterSpec);
 
             // File transmission
             ZipOutputStream outputStream = new ZipOutputStream(clientSocket.getOutputStream());
             InputStream inputStream = new FileInputStream(filePath);
+            CipherOutputStream cipherOutputStream = new CipherOutputStream(outputStream, aesCipher);
 
             File file = new File(filePath);
             long fileSize = file.length();
@@ -67,17 +79,20 @@ public class Client {
             long totalRead = 0;
             while ((count = inputStream.read(buffer)) > 0) {
                 totalRead += count;
-                outputStream.write(buffer, 0, count);
+                cipherOutputStream.write(buffer, 0, count);
                 System.out.print("\rSending: " + (totalRead*100/fileSize) + "%");
             }
             System.out.println("\nDone.");
 
+            cipherOutputStream.flush();
+            cipherOutputStream.close();
             outputStream.close();
             inputStream.close();
             clientSocket.close();
             System.out.println("Socket closed.");
-        } catch (NoSuchAlgorithmException|ClassNotFoundException|
-                IOException e) {
+        } catch (NoSuchAlgorithmException | IOException |InvalidKeyException |NoSuchPaddingException
+                |BadPaddingException |IllegalBlockSizeException |InvalidAlgorithmParameterException
+                |ClassNotFoundException e) {
             e.printStackTrace();
         }
     }
